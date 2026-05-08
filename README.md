@@ -72,101 +72,150 @@
 
 </details>
 
-## 🚀 Quick Start
+## 📋 Prerequisites
+
+Install these tools before running CADAM locally:
+
+- Node.js `18+` (LTS recommended) and npm
+- Docker Desktop (required by `supabase start`)
+- Supabase CLI (`npm i -g supabase` or package manager install)
+- ngrok (required for image flows when `ENVIRONMENT=local`)
+
+Optional but useful:
+
+- Deno (only needed for `npm run lint:supabase`)
+
+## 🔧 Environment Setup
+
+CADAM needs 2 environment files:
+
+1. Frontend env file
+   - Copy `.env.local.template` to `.env.local`
+   - Set values:
+     - `VITE_SUPABASE_URL` (local default: `http://127.0.0.1:54321`)
+     - `VITE_SUPABASE_ANON_KEY` (from `npx supabase status`)
+     - `VITE_POSTHOG_PROJECT_KEY` (optional for local, but recommended)
+     - `VITE_SENTRY_DSN` and `VITE_SENTRY_ENVIRONMENT` (optional)
+
+2. Supabase Edge Functions env file
+   - Copy `supabase/functions/.env.template` to `supabase/functions/.env`
+   - Fill required API keys for the features you use:
+     - `ANTHROPIC_API_KEY`
+     - `OPENAI_API_KEY`
+     - `OPENROUTER_API_KEY`
+     - `GOOGLE_API_KEY`
+     - `FAL_KEY`
+   - Set local runtime values:
+     - `ENVIRONMENT="local"`
+     - `NGROK_URL="<your-ngrok-url>"`
+     - `ADAM_URL="http://localhost:5173/cadam"` (or your deployed URL)
+   - Billing variables are only needed for billing flows:
+     - `BILLING_SERVICE_URL`
+     - `BILLING_SERVICE_KEY`
+
+## 🚀 Run Locally (Reliable Order)
+
+1. Clone and install
 
 ```bash
-# Clone the repository
 git clone https://github.com/Adam-CAD/CADAM.git
 cd CADAM
-
-# Install dependencies
 npm install
+```
 
-# Start Supabase
+2. Start local Supabase (Docker must be running)
+
+```bash
 npx supabase start
-npx supabase functions serve --no-verify-jwt
+```
 
-# Start the development server
+3. Sync local frontend env with Supabase output
+
+```bash
+npx supabase status
+```
+
+Copy `API URL` and `anon key` into `.env.local` as:
+
+```bash
+VITE_SUPABASE_URL="http://127.0.0.1:54321"
+VITE_SUPABASE_ANON_KEY="<anon-key-from-status>"
+```
+
+4. (Recommended first run) Reset DB to apply migrations and seed data
+
+```bash
+npx supabase db reset
+```
+
+This seed includes a local test account:
+
+- Email: `test@adamcad.com`
+- Password: `password`
+
+5. Start ngrok (required for local image URL callbacks)
+
+```bash
+ngrok http 54321
+```
+
+Update `NGROK_URL` in `supabase/functions/.env` with the HTTPS URL from ngrok.
+
+6. Serve Supabase functions
+
+```bash
+npx supabase functions serve --env-file supabase/functions/.env --no-verify-jwt
+```
+
+7. Start the frontend
+
+```bash
 npm run dev
 ```
 
-## 📋 Prerequisites
+Open the app at:
 
-- Node.js and npm
-- Supabase CLI
-- ngrok (for local webhook development)
+- `http://localhost:5173/cadam`
 
-## 🔧 Setting Up Environment Variables
-
-### 1. Frontend Environment:
-
-- Copy `.env.local.template` to `.env.local`
-- Update all required keys in `.env.local`:
-  ```
-  VITE_SUPABASE_ANON_KEY="<Test Anon Key>"
-  VITE_SUPABASE_URL='http://127.0.0.1:54321'
-  ```
-
-### 2. Supabase Functions Environment:
-
-- Copy `supabase/functions/.env.template` to `supabase/functions/.env`
-- Update all required keys in `supabase/functions/.env`, including:
-  ```
-  ANTHROPIC_API_KEY="<Test Anthropic API Key>"
-  ENVIRONMENT="local"
-  NGROK_URL="<NGROK URL>" # Your ngrok tunnel URL, e.g., https://xxxx-xx-xx-xxx-xx.ngrok.io
-  ```
-
-## 🌐 Setting Up ngrok for Local Development
-
-CADAM uses ngrok to send image URLs to Anthropic:
-
-1. Install ngrok if you haven't already:
-
-   ```bash
-   npm install -g ngrok
-   # or
-   brew install ngrok
-   ```
-
-2. Start an ngrok tunnel pointing to your Supabase instance:
-
-   ```bash
-   ngrok http 54321
-   ```
-
-3. Copy the generated ngrok URL (e.g., https://xxxx-xx-xx-xxx-xx.ngrok.io) and add it to your `supabase/functions/.env` file:
-
-   ```
-   NGROK_URL="https://xxxx-xx-xx-xxx-xx.ngrok.io"
-   ```
-
-4. Ensure `ENVIRONMENT="local"` is set in the same file.
-
-## 💻 Development Workflow
-
-### Install Dependencies
+## 🧪 Useful Commands
 
 ```bash
-npm i
+# Frontend lint
+npm run lint
+
+# Frontend typecheck
+npm run typecheck
+
+# Supabase function lint
+npm run lint:supabase
+
+# Production build
+npm run build
 ```
 
-### Start Supabase Services
+## 🛠️ Troubleshooting
 
-```bash
-npx supabase start
-npx supabase functions serve --no-verify-jwt
-```
+- `Missing API Keys` screen:
+  - `.env.local` is missing or `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` is empty.
+- Supabase commands fail:
+  - Ensure Docker Desktop is running, then retry `npx supabase start`.
+- Function calls fail from frontend:
+  - Ensure `supabase functions serve` is running in a separate terminal.
+- Image generation fails in local:
+  - Check `NGROK_URL` in `supabase/functions/.env` and confirm the ngrok tunnel is active.
+- Login issues after schema changes:
+  - Run `npx supabase db reset` to rebuild local database state.
 
 ## 🛠️ Built With
 
-- **Frontend:** React 18 + TypeScript + Vite
-- **3D Rendering:** Three.js + React Three Fiber
+- **Frontend:** React 19 + TypeScript + Vite
+- **UI:** Tailwind CSS + shadcn/ui + Radix UI
+- **Data Layer:** Supabase JS + TanStack React Query
+- **Backend:** Supabase Postgres + Supabase Edge Functions (Deno)
+- **3D Rendering:** Three.js + React Three Fiber (+ drei)
 - **CAD Engine:** OpenSCAD WebAssembly
-- **Backend:** Supabase (PostgreSQL + Edge Functions)
-- **AI:** Anthropic Claude API
-- **Styling:** Tailwind CSS + shadcn/ui
-- **Libraries:** BOSL, BOSL2, MCAD
+- **AI Providers:** Anthropic, OpenAI, Google GenAI, OpenRouter, fal.ai
+- **CAD Libraries:** BOSL, BOSL2, MCAD
 
 ## 🤝 Contributing
 
