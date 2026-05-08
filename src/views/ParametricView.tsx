@@ -46,7 +46,6 @@ interface ParametricViewProps {
   currentOutput: Blob | undefined;
   setCurrentOutput: (output: Blob | undefined) => void;
   color: string;
-  limitReached?: boolean;
   changeParameters: (message: Message | null, parameters: Parameter[]) => void;
   stopGenerating?: () => void;
   fixError?: (error: OpenSCADError) => void;
@@ -63,7 +62,6 @@ export default function ParametricView({
   currentOutput,
   setCurrentOutput,
   color,
-  limitReached = false,
   changeParameters,
   stopGenerating,
   fixError,
@@ -229,7 +227,7 @@ export default function ParametricView({
           <ParametricPreviewDialog
             onOutputChange={setCurrentOutput}
             onDxfExportChange={handleDxfExportChange}
-            fixError={!limitReached ? fixError : undefined}
+              fixError={fixError}
             onSubmit={changeParameters}
             currentOutput={currentOutput}
             dxfExporter={dxfExporter}
@@ -309,7 +307,7 @@ export default function ParametricView({
               onOutputChange={setCurrentOutput}
               onDxfExportChange={handleDxfExportChange}
               color={color}
-              fixError={!limitReached ? fixError : undefined}
+              fixError={fixError}
             />
           </Panel>
           {/*

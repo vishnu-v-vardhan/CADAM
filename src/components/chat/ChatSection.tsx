@@ -9,12 +9,9 @@ import { UserMessage } from '@/components/chat/UserMessage';
 import { ShareContent } from '@/components/ui/ShareContent';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { useAuth } from '@/contexts/AuthContext';
 import { useConversation } from '@/contexts/ConversationContext';
 import { AssistantLoading } from '@/components/chat/AssistantLoading';
 import { ChatTitle } from '@/components/chat/ChatTitle';
-import { LimitReachedMessage } from '@/components/LimitReachedMessage';
-import { LowPromptsWarningMessage } from '@/components/LowPromptsWarningMessage';
 import { CreateIcon } from '@/components/icons/ui/CreateIcon';
 import { ConditionalWrapper } from '@/components/ConditionalWrapper';
 import { TreeNode } from '@shared/Tree';
@@ -64,8 +61,6 @@ export function ChatSection({
   const isMobile = useIsMobile();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { conversation, updateConversation } = useConversation();
-  const { session, billing } = useAuth();
-  const totalTokens = billing?.tokens.total ?? 0;
   const navigate = useNavigate();
 
   const scrollToBottom = useCallback(() => {
@@ -83,13 +78,7 @@ export function ChatSection({
     conversation.settings?.model ??
     (conversation.type === 'parametric' ? 'fast' : 'quality');
 
-  const lowPrompts = useMemo(() => {
-    return totalTokens > 0 && totalTokens <= 10;
-  }, [totalTokens]);
-
-  const limitReached = useMemo(() => {
-    return totalTokens <= 0;
-  }, [totalTokens]);
+  const limitReached = false;
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -244,7 +233,7 @@ export function ChatSection({
                     isLoading={isLoading}
                     currentVersion={getCurrentVersion(index)}
                     restoreMessage={restoreMessage}
-                    limitReached={limitReached}
+                    limitReached={false}
                     onRetry={retryMessage}
                     onUpscale={upscaleMessage}
                   />
@@ -253,7 +242,7 @@ export function ChatSection({
                     message={message}
                     onEdit={onEdit}
                     isLoading={isLoading}
-                    limitReached={limitReached}
+                    limitReached={false}
                   />
                 )}
               </div>
@@ -262,20 +251,12 @@ export function ChatSection({
           {isLoading && lastMessage?.role !== 'assistant' && (
             <AssistantLoading />
           )}
-          {/* Made the Low Prompt Warning not Sticky */}
-          {session && session.user && limitReached && <LimitReachedMessage />}
-          {session && session.user && lowPrompts && !limitReached && (
-            <LowPromptsWarningMessage
-              tokensRemaining={totalTokens}
-              layout="stacked"
-            />
-          )}
         </div>
       </ScrollArea>
       {onSendMessage && (
         <div className="w-full min-w-52 max-w-xl bg-transparent px-4 pb-6">
           <SuggestionPills
-            disabled={limitReached}
+            disabled={false}
             suggestions={suggestions}
             onSelect={handleSuggestionSelect}
           />
@@ -284,7 +265,7 @@ export function ChatSection({
             onSubmit={onSendMessage}
             placeholder="Keep iterating with Adam..."
             isLoading={isLoading}
-            disabled={limitReached}
+            disabled={false}
             type={conversation.type}
             model={model}
             setModel={handleModelChange}

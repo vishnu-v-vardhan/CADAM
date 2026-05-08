@@ -12,11 +12,7 @@ import Tree from '@shared/Tree.ts';
 import parseParameters from '../_shared/parseParameter.ts';
 import { formatUserMessage } from '../_shared/messageUtils.ts';
 import { corsHeaders } from '../_shared/cors.ts';
-import { billing, BillingClientError } from '../_shared/billingClient.ts';
 import { initSentry, logError } from '../_shared/sentry.ts';
-
-const CHAT_TOKEN_COST = 1;
-const PARAMETRIC_TOKEN_COST = 5;
 
 initSentry();
 
@@ -494,49 +490,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Deduct chat token (1) via adam-billing
-  if (!userData.user.email) {
-    return new Response(JSON.stringify({ error: 'User email missing' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  try {
-    const result = await billing.consume(userData.user.email, {
-      tokens: CHAT_TOKEN_COST,
-      operation: 'chat',
-      referenceId: crypto.randomUUID(),
-    });
-    if (!result.ok) {
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: 'insufficient_tokens',
-            code: 'insufficient_tokens',
-            tokensRequired: result.tokensRequired,
-            tokensAvailable: result.tokensAvailable,
-          },
-        }),
-        {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      );
-    }
-  } catch (err) {
-    const status = err instanceof BillingClientError ? err.status : 502;
-    logError(err, {
-      functionName: 'parametric-chat',
-      statusCode: status,
-      userId: userData.user.id,
-    });
-    return new Response(JSON.stringify({ error: 'billing_unavailable' }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
   const {
     messageId,
     conversationId,
@@ -988,46 +941,6 @@ Deno.serve(async (req) => {
             // that renders as a perpetually streaming code block.
             let resolved = false;
             try {
-              // Deduct parametric tokens (5) for model building
-              try {
-                const paramResult = await billing.consume(
-                  userData.user!.email!,
-                  {
-                    tokens: PARAMETRIC_TOKEN_COST,
-                    operation: 'parametric',
-                    referenceId: toolCall.id,
-                  },
-                );
-                if (!paramResult.ok) {
-                  content = {
-                    ...markToolAsError(content, toolCall.id),
-                    error: 'insufficient_tokens',
-                  };
-                  streamMessage(controller, { ...newMessageData, content });
-                  resolved = true;
-                  return;
-                }
-              } catch (err) {
-                const status =
-                  err instanceof BillingClientError ? err.status : 502;
-                logError(err, {
-                  functionName: 'parametric-chat',
-                  statusCode: status,
-                  userId: userData.user?.id,
-                  conversationId,
-                  additionalContext: {
-                    operation: 'parametric',
-                    toolCallId: toolCall.id,
-                  },
-                });
-                content = {
-                  ...markToolAsError(content, toolCall.id),
-                  error: 'billing_unavailable',
-                };
-                streamMessage(controller, { ...newMessageData, content });
-                resolved = true;
-                return;
-              }
               let toolInput: {
                 text?: string;
                 imageIds?: string[];

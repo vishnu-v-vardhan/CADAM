@@ -16,14 +16,11 @@ import {
 } from '../_shared/supabaseClient.ts';
 import Tree from '@shared/Tree.ts';
 import { initSentry, logError } from '../_shared/sentry.ts';
-import { billing, BillingClientError } from '../_shared/billingClient.ts';
 import {
   getSignedUrl,
   getSignedUrls,
   formatCreativeUserMessage,
 } from '../_shared/messageUtils.ts';
-
-const CHAT_TOKEN_COST = 1;
 
 // Initialize Sentry for error logging
 initSentry();
@@ -368,49 +365,6 @@ Deno.serve(async (req) => {
     });
     return new Response(JSON.stringify({ error: userError.message }), {
       status: 401,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  // Deduct chat token (1) via adam-billing
-  if (!userData.user.email) {
-    return new Response(JSON.stringify({ error: 'User email missing' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  try {
-    const result = await billing.consume(userData.user.email, {
-      tokens: CHAT_TOKEN_COST,
-      operation: 'chat',
-      referenceId: crypto.randomUUID(),
-    });
-    if (!result.ok) {
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: 'insufficient_tokens',
-            code: 'insufficient_tokens',
-            tokensRequired: result.tokensRequired,
-            tokensAvailable: result.tokensAvailable,
-          },
-        }),
-        {
-          status: 402,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      );
-    }
-  } catch (err) {
-    const status = err instanceof BillingClientError ? err.status : 502;
-    logError(err, {
-      functionName: 'creative-chat',
-      statusCode: status,
-      userId: userData.user.id,
-    });
-    return new Response(JSON.stringify({ error: 'billing_unavailable' }), {
-      status: 502,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }

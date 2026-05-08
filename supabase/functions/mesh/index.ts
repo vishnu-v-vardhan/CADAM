@@ -17,11 +17,8 @@ import {
   SupabaseClient,
 } from '../_shared/supabaseClient.ts';
 import { reformatSignedUrl } from '../_shared/messageUtils.ts';
-import { billing, BillingClientError } from '../_shared/billingClient.ts';
 import { initSentry, logError, logApiError } from '../_shared/sentry.ts';
 import { Buffer } from 'node:buffer';
-
-const MESH_TOKEN_COST = 30;
 
 // Initialize Sentry for error logging
 initSentry();
@@ -402,56 +399,6 @@ Deno.serve(async (req) => {
         JSON.stringify({ error: { message: userError.message } }),
         {
           status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      );
-    }
-
-    // Deduct tokens for mesh operation via adam-billing
-    if (!userData.user.email) {
-      return new Response(
-        JSON.stringify({ error: { message: 'User email missing' } }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      );
-    }
-
-    const meshReferenceId = crypto.randomUUID();
-    try {
-      const result = await billing.consume(userData.user.email, {
-        tokens: MESH_TOKEN_COST,
-        operation: 'mesh',
-        referenceId: meshReferenceId,
-      });
-      if (!result.ok) {
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: 'insufficient_tokens',
-              code: 'insufficient_tokens',
-              tokensRequired: result.tokensRequired,
-              tokensAvailable: result.tokensAvailable,
-            },
-          }),
-          {
-            status: 402,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          },
-        );
-      }
-    } catch (err) {
-      const status = err instanceof BillingClientError ? err.status : 502;
-      logError(err, {
-        functionName: 'mesh',
-        statusCode: status,
-        userId: userData.user.id,
-      });
-      return new Response(
-        JSON.stringify({ error: { message: 'billing_unavailable' } }),
-        {
-          status: 502,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         },
       );

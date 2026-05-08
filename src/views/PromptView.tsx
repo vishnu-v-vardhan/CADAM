@@ -9,8 +9,6 @@ import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useState, useMemo, useEffect } from 'react';
 import { Content, Conversation, Model } from '@shared/types';
 import { MessageItem } from '../types/misc.ts';
-import { LimitReachedMessage } from '@/components/LimitReachedMessage';
-import { LowPromptsWarningMessage } from '@/components/LowPromptsWarningMessage';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 import { SelectedItemsContext } from '@/contexts/SelectedItemsContext';
@@ -35,8 +33,7 @@ const EXTENSION_PILLS = [
 export function PromptView() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, billing, isLoading } = useAuth();
-  const totalTokens = billing?.tokens.total ?? 0;
+  const { user, isLoading } = useAuth();
   const { data: profile, isLoading: isProfileLoading } = useProfile();
   const { isSidebarOpen } = useOutletContext<{ isSidebarOpen: boolean }>();
   const queryClient = useQueryClient();
@@ -72,16 +69,6 @@ export function PromptView() {
   const newConversationId = useMemo(() => {
     return crypto.randomUUID();
   }, []);
-
-  const lowPrompts = useMemo(() => {
-    if (isLoading) return false;
-    return totalTokens > 0 && totalTokens <= 10;
-  }, [totalTokens, isLoading]);
-
-  const limitReached = useMemo(() => {
-    if (isLoading) return false;
-    return totalTokens <= 0;
-  }, [totalTokens, isLoading]);
 
   const { mutate: sendMessage } = useSendContentMutation({
     conversation: {
@@ -261,7 +248,6 @@ export function PromptView() {
                   }}
                   placeholder="Start building with Adam..."
                   type={type}
-                  disabled={limitReached}
                   model={model}
                   setModel={setModel}
                   showPromptGenerator={true}
@@ -275,18 +261,8 @@ export function PromptView() {
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-adam-blue border-t-transparent" />
                   </div>
                 )}
-                {!isLoading && user && limitReached && (
-                  <div className="absolute left-0 right-0 top-0">
-                    <LimitReachedMessage />
-                  </div>
-                )}
-                {!isLoading && user && lowPrompts && !limitReached && (
-                  <div className="absolute left-0 right-0 top-0">
-                    <LowPromptsWarningMessage tokensRemaining={totalTokens} />
-                  </div>
-                )}
               </div>
-              {!isLoading && user && !limitReached && !lowPrompts && (
+              {!isLoading && user && (
                 <div className="flex flex-wrap justify-center gap-2">
                   {EXTENSION_PILLS.map(({ href, event, label }) => (
                     <a

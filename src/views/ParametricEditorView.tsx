@@ -15,7 +15,6 @@ import {
   useUpdateMessageOptimisticMutation,
   useChangeRatingMutation,
 } from '@/services/messageService';
-import { useAuth } from '@/contexts/AuthContext';
 import Tree from '@shared/Tree';
 import { useRequestCancellation } from '@/hooks/useRequestCancellation';
 import posthog from 'posthog-js';
@@ -25,8 +24,6 @@ export function ParametricEditorView() {
   const { conversation, updateConversationAsync } = useConversation();
   const queryClient = useQueryClient();
   const { currentMessage, setCurrentMessage } = useCurrentMessage();
-  const { billing } = useAuth();
-  const totalTokens = billing?.tokens.total ?? 0;
   const [currentOutput, setCurrentOutput] = useState<Blob | undefined>();
   // Brand fallback color used when OFF parsing fails and we drop back to
   // the single-color STL mesh.
@@ -205,7 +202,6 @@ export function ParametricEditorView() {
       fixError={currentMessage?.id === lastMessage?.id ? fixError : undefined}
       changeRating={changeRating}
       restoreMessage={restoreMessage}
-      limitReached={totalTokens <= 0}
     />
   );
 }

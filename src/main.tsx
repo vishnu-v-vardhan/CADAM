@@ -25,7 +25,6 @@ import { UpdatePasswordView } from './views/UpdatePasswordView.tsx';
 import { TermsOfServiceView } from './views/TermsOfServiceView.tsx';
 import EmailConfirmation from './views/EmailConfirmation.tsx';
 import { PromptView } from './views/PromptView.tsx';
-import { SubscriptionView } from './views/SubscriptionView.tsx';
 import { HistoryView } from './views/HistoryView.tsx';
 import { AuthGuard } from './components/auth/AuthGuard.tsx';
 import { Layout } from './components/Layout.tsx';
@@ -105,11 +104,6 @@ const router = sentryCreateBrowserRouter(
                   path: '/history',
                   errorElement: <ErrorView />,
                   element: <HistoryView />,
-                },
-                {
-                  path: '/subscription',
-                  errorElement: <ErrorView />,
-                  element: <SubscriptionView />,
                 },
                 {
                   path: '/settings',
