@@ -24,7 +24,14 @@ import {
   PARAMETRIC_MODELS,
   parametricModelSupportsVision,
 } from '@/lib/utils';
-import { Content, CreativeModel, MeshFileType, Model } from '@shared/types';
+import {
+  Content,
+  ConversationSettings,
+  CreativeModel,
+  MeshFileType,
+  Model,
+  ParametricLlmProvider,
+} from '@shared/types';
 import {
   shouldShowPolygonControls,
   getModelDefaultPolygonCount,
@@ -53,6 +60,8 @@ import { useMutation } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { ModelSelector } from '@/components/ModelSelector';
+import { ParametricLlmBackendToggle } from '@/components/ParametricLlmBackendToggle';
+import { useLocalParametricModelsQuery } from '@/hooks/useLocalParametricModels';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar } from '@/components/ui/avatar';
@@ -82,7 +91,9 @@ interface TextAreaChatProps {
   conversation: {
     id: string;
     user_id: string;
+    settings?: ConversationSettings | null;
   };
+  onParametricLlmProviderChange?: (provider: ParametricLlmProvider) => void;
 }
 
 // SVG Icon component for the quads/polys toggle
@@ -478,6 +489,7 @@ function TextAreaChat({
   showFullLabels = false,
   onTypeChange,
   conversation,
+  onParametricLlmProviderChange,
 }: TextAreaChatProps) {
   const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -652,12 +664,72 @@ function TextAreaChat({
     },
   };
 
+  const parametricLlmBackend: ParametricLlmProvider =
+    conversation.settings?.parametricLlmProvider ?? 'openrouter';
+
+  const localModelsQuery = useLocalParametricModelsQuery(
+    type === 'parametric' && parametricLlmBackend === 'local',
+  );
+
   const memoizedModels = useMemo(() => {
     if (type === 'creative') {
       return CREATIVE_MODELS;
     }
+    if (parametricLlmBackend === 'local') {
+      const rows = localModelsQuery.data ?? [];
+      if (localModelsQuery.isLoading && rows.length === 0) {
+        return [
+          {
+            id: model,
+            name: 'Loading models…',
+            description: 'Fetching from LOCAL_LLM_URL',
+          },
+        ];
+      }
+      if (localModelsQuery.isError && rows.length === 0) {
+        return [
+          {
+            id: model,
+            name: 'Local models unavailable',
+            description:
+              localModelsQuery.error instanceof Error
+                ? localModelsQuery.error.message
+                : 'Check Edge Function LOCAL_LLM_URL and LM Studio',
+          },
+        ];
+      }
+      return rows.map((m) => ({
+        id: m.id,
+        name: m.id,
+        description: 'Local model (LM Studio)',
+      }));
+    }
     return PARAMETRIC_MODELS;
-  }, [type]);
+  }, [
+    type,
+    parametricLlmBackend,
+    localModelsQuery.data,
+    localModelsQuery.isLoading,
+    localModelsQuery.isError,
+    localModelsQuery.error,
+    model,
+  ]);
+
+  useEffect(() => {
+    if (type !== 'parametric' || parametricLlmBackend !== 'local') return;
+    const rows = localModelsQuery.data ?? [];
+    if (localModelsQuery.isLoading || rows.length === 0) return;
+    if (!rows.some((m) => m.id === model)) {
+      setModel(rows[0]!.id);
+    }
+  }, [
+    type,
+    parametricLlmBackend,
+    localModelsQuery.data,
+    localModelsQuery.isLoading,
+    model,
+    setModel,
+  ]);
 
   // ------------------------------------------------------------
   // Placeholder – Typed-out Animation
@@ -1572,6 +1644,7 @@ function TextAreaChat({
         <div className="flex items-center justify-between border-t border-[#2a2a2a] p-3">
           <div className="flex items-center gap-1">
             {(type !== 'parametric' ||
+              parametricLlmBackend === 'local' ||
               parametricModelSupportsVision(model)) && (
               <div
                 className={cn(
@@ -1666,9 +1739,23 @@ function TextAreaChat({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {type === 'parametric' && onParametricLlmProviderChange && (
+              <ParametricLlmBackendToggle
+                value={parametricLlmBackend}
+                onChange={onParametricLlmProviderChange}
+                disabled={isLoading || disabled}
+              />
+            )}
             <ModelSelector
-              disabled={isLoading || disabled}
+              disabled={
+                isLoading ||
+                disabled ||
+                (type === 'parametric' &&
+                  parametricLlmBackend === 'local' &&
+                  (localModelsQuery.isLoading ||
+                    !(localModelsQuery.data && localModelsQuery.data.length > 0)))
+              }
               models={memoizedModels}
               selectedModel={model}
               onModelChange={setModel}

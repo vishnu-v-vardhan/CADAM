@@ -2,6 +2,9 @@ import { Database } from './database.ts';
 export type Model = string;
 export type CreativeModel = 'quality' | 'fast' | 'ultra';
 
+/** Parametric chat only: OpenRouter vs LM Studio–compatible local endpoint. */
+export type ParametricLlmProvider = 'openrouter' | 'local';
+
 export type Prompt = {
   text?: string;
   images?: string[];
@@ -110,6 +113,7 @@ export type GenerationStatus = Database['public']['Enums']['generation-status'];
 
 export type ConversationSettings = {
   model?: Model;
+  parametricLlmProvider?: ParametricLlmProvider;
 } | null;
 
 export type Profile = Database['public']['Tables']['profiles']['Row'];

@@ -20,6 +20,60 @@ initSentry();
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const OPENROUTER_API_KEY = Deno.env.get('OPENROUTER_API_KEY') ?? '';
 
+// LM Studio / OpenAI-compatible local server (must be reachable from the edge runtime)
+const LOCAL_LLM_URL_RAW = Deno.env.get('LOCAL_LLM_URL') ?? '';
+const LOCAL_LLM_API_TOKEN = Deno.env.get('LOCAL_LLM_API_TOKEN') ?? '';
+
+type ParametricLlmBackend = 'openrouter' | 'local';
+
+function normalizeLocalLlmV1Base(raw: string): string {
+  let s = raw.trim().replace(/\/+$/, '');
+  if (!s) return '';
+  if (s.endsWith('/chat/completions')) {
+    s = s.slice(0, -'/chat/completions'.length).replace(/\/+$/, '');
+  }
+  if (!s.endsWith('/v1')) {
+    s = `${s}/v1`;
+  }
+  return s;
+}
+
+function localLlmHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (LOCAL_LLM_API_TOKEN) {
+    h.Authorization = `Bearer ${LOCAL_LLM_API_TOKEN}`;
+  }
+  return h;
+}
+
+function chatCompletionsUrl(backend: ParametricLlmBackend): string {
+  if (backend === 'openrouter') return OPENROUTER_API_URL;
+  const base = normalizeLocalLlmV1Base(LOCAL_LLM_URL_RAW);
+  return `${base}/chat/completions`;
+}
+
+function chatCompletionHeaders(
+  backend: ParametricLlmBackend,
+): Record<string, string> {
+  if (backend === 'openrouter') {
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+      'HTTP-Referer': 'https://adam-cad.com',
+      'X-Title': 'Adam CAD',
+    };
+  }
+  return localLlmHeaders();
+}
+
+/** Drop OpenRouter-only fields for LM Studio / local OpenAI servers. */
+function sanitizeChatCompletionBody<T extends Record<string, unknown>>(body: T): T {
+  const out = { ...body };
+  delete out.provider;
+  delete out.reasoning;
+  return out;
+}
+
 // Models whose OpenRouter listing serves at least one provider that does NOT
 // support tool calling. For these we set `provider: { require_parameters: true }`
 // on the agent (tools-bearing) call so OpenRouter excludes the tool-incompatible
@@ -231,6 +285,8 @@ interface OpenRouterRequest {
 
 async function generateTitleFromMessages(
   messagesToSend: OpenAIMessage[],
+  backend: ParametricLlmBackend,
+  titleModelId: string,
 ): Promise<string> {
   try {
     const titleSystemPrompt = `Generate a short title for a 3D object. Rules:
@@ -240,30 +296,30 @@ async function generateTitleFromMessages(
 - No quotes or special formatting
 - Examples: "Coffee Mug", "Gear Assembly", "Phone Stand"`;
 
-    const response = await fetch(OPENROUTER_API_URL, {
+    const titleModel =
+      backend === 'openrouter' ? 'anthropic/claude-haiku-4.5' : titleModelId;
+
+    const response = await fetch(chatCompletionsUrl(backend), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://adam-cad.com',
-        'X-Title': 'Adam CAD',
-      },
-      body: JSON.stringify({
-        model: 'anthropic/claude-haiku-4.5',
-        max_tokens: 30,
-        messages: [
-          { role: 'system', content: titleSystemPrompt },
-          ...messagesToSend,
-          {
-            role: 'user',
-            content: 'Title:',
-          },
-        ],
-      }),
+      headers: chatCompletionHeaders(backend),
+      body: JSON.stringify(
+        sanitizeChatCompletionBody({
+          model: titleModel,
+          max_tokens: 30,
+          messages: [
+            { role: 'system', content: titleSystemPrompt },
+            ...messagesToSend,
+            {
+              role: 'user',
+              content: 'Title:',
+            },
+          ],
+        }),
+      ),
     });
 
     if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.statusText}`);
+      throw new Error(`LLM title request failed: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -455,6 +511,85 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const requestUrl = new URL(req.url);
+
+  if (req.method === 'GET' && requestUrl.searchParams.get('local_models') === '1') {
+    const listClient = getAnonSupabaseClient({
+      global: {
+        headers: { Authorization: req.headers.get('Authorization') ?? '' },
+      },
+    });
+    const { data: listUserData, error: listUserError } =
+      await listClient.auth.getUser();
+    if (!listUserData.user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    if (listUserError) {
+      return new Response(JSON.stringify({ error: listUserError.message }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const base = normalizeLocalLlmV1Base(LOCAL_LLM_URL_RAW);
+    if (!LOCAL_LLM_URL_RAW.trim() || !base) {
+      return new Response(
+        JSON.stringify({
+          models: [],
+          error: 'LOCAL_LLM_URL is not configured',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
+    }
+
+    try {
+      const mr = await fetch(`${base}/models`, {
+        method: 'GET',
+        headers: localLlmHeaders(),
+      });
+      if (!mr.ok) {
+        const t = await mr.text();
+        return new Response(
+          JSON.stringify({
+            models: [],
+            error: `Local LLM listing failed (${mr.status}): ${t}`,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        );
+      }
+      const mj = (await mr.json()) as { data?: Array<{ id?: string }> };
+      const models = (mj.data ?? [])
+        .filter((x) => typeof x.id === 'string')
+        .map((x) => ({ id: x.id as string }));
+      return new Response(JSON.stringify({ models }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (e) {
+      console.error('local_models:', e);
+      return new Response(
+        JSON.stringify({
+          models: [],
+          error:
+            e instanceof Error ? e.message : 'Could not reach local LLM server',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      );
+    }
+  }
+
   if (req.method !== 'POST') {
     return new Response('Method not allowed', {
       status: 405,
@@ -496,13 +631,34 @@ Deno.serve(async (req) => {
     model,
     newMessageId,
     thinking, // Add thinking parameter
+    parametricLlmProvider,
   }: {
     messageId: string;
     conversationId: string;
     model: Model;
     newMessageId: string;
     thinking?: boolean;
+    parametricLlmProvider?: ParametricLlmBackend;
   } = await req.json();
+
+  const backend: ParametricLlmBackend =
+    parametricLlmProvider === 'local' ? 'local' : 'openrouter';
+
+  if (backend === 'local') {
+    const localBaseOk = normalizeLocalLlmV1Base(LOCAL_LLM_URL_RAW);
+    if (!LOCAL_LLM_URL_RAW.trim() || !localBaseOk) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Local LLM is not configured on the server (set LOCAL_LLM_URL for the Edge Function runtime).',
+        }),
+        {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        },
+      );
+    }
+  }
 
   // Authoritative server-side capability: don't trust the client to self-report.
   const supportsVision = !TEXT_ONLY_MODELS.has(model);
@@ -653,19 +809,27 @@ Deno.serve(async (req) => {
 
     // Constrain provider routing only when the model has providers that don't
     // support tool calling — otherwise we'd needlessly narrow the pool.
-    if (REQUIRES_TOOL_CAPABLE_PROVIDER.has(model)) {
+    if (
+      backend === 'openrouter' &&
+      REQUIRES_TOOL_CAPABLE_PROVIDER.has(model)
+    ) {
       requestBody.provider = { require_parameters: true };
     }
 
-    // Add reasoning/thinking parameter if requested and supported
-    // OpenRouter uses a unified 'reasoning' parameter
-    if (thinking) {
+    // Add reasoning/thinking parameter if requested and supported (OpenRouter only)
+    if (thinking && backend === 'openrouter') {
       requestBody.reasoning = {
         max_tokens: 12000,
       };
-      // Ensure total max_tokens is high enough to accommodate reasoning + output
       requestBody.max_tokens = 20000;
     }
+
+    const agentRequestPayload =
+      backend === 'local'
+        ? sanitizeChatCompletionBody(
+            requestBody as unknown as Record<string, unknown>,
+          )
+        : requestBody;
 
     // Shares the request-scoped deadline with code-gen below so the two
     // fetches together can never outlive the Supabase wall-clock budget.
@@ -675,24 +839,19 @@ Deno.serve(async (req) => {
       remainingBudgetMs(),
     );
 
-    const response = await fetch(OPENROUTER_API_URL, {
+    const response = await fetch(chatCompletionsUrl(backend), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://adam-cad.com',
-        'X-Title': 'Adam CAD',
-      },
-      body: JSON.stringify(requestBody),
+      headers: chatCompletionHeaders(backend),
+      body: JSON.stringify(agentRequestPayload),
       signal: agentAbort.signal,
     });
 
     if (!response.ok) {
       clearTimeout(agentTimeout);
       const errorText = await response.text();
-      console.error(`OpenRouter API Error: ${response.status} - ${errorText}`);
+      console.error(`Parametric chat LLM error: ${response.status} - ${errorText}`);
       throw new Error(
-        `OpenRouter API error: ${response.statusText} (${response.status})`,
+        `LLM request failed: ${response.statusText} (${response.status})`,
       );
     }
 
@@ -857,7 +1016,11 @@ Deno.serve(async (req) => {
               );
 
               // Generate a title from the messages
-              const title = await generateTitleFromMessages(messagesToSend);
+              const title = await generateTitleFromMessages(
+                messagesToSend,
+                backend,
+                model,
+              );
 
               // Remove the code from the text (keep any non-code explanation)
               let cleanedText = content.text;
@@ -996,16 +1159,26 @@ Deno.serve(async (req) => {
                 stream: true,
               };
 
-              // Also apply thinking to code generation if enabled
-              if (thinking) {
+              if (thinking && backend === 'openrouter') {
                 codeRequestBody.reasoning = {
                   max_tokens: 12000,
                 };
                 codeRequestBody.max_tokens = 60000;
               }
 
+              const codeRequestPayload =
+                backend === 'local'
+                  ? sanitizeChatCompletionBody(
+                      codeRequestBody as unknown as Record<string, unknown>,
+                    )
+                  : codeRequestBody;
+
               // Kick off title generation alongside the streamed code.
-              const titlePromise = generateTitleFromMessages(messagesToSend);
+              const titlePromise = generateTitleFromMessages(
+                messagesToSend,
+                backend,
+                model,
+              );
 
               let rawCode = '';
               let codeGenFailed = false;
@@ -1028,15 +1201,10 @@ Deno.serve(async (req) => {
                 remainingBudgetMs(),
               );
               try {
-                const codeResponse = await fetch(OPENROUTER_API_URL, {
+                const codeResponse = await fetch(chatCompletionsUrl(backend), {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'https://adam-cad.com',
-                    'X-Title': 'Adam CAD',
-                  },
-                  body: JSON.stringify(codeRequestBody),
+                  headers: chatCompletionHeaders(backend),
+                  body: JSON.stringify(codeRequestPayload),
                   signal: codeGenAbort.signal,
                 });
 

@@ -1,6 +1,12 @@
 import { useConversation } from '@/contexts/ConversationContext';
 import { supabase } from '@/lib/supabase';
-import { Content, Conversation, Message, Model } from '@shared/types';
+import {
+  Content,
+  Conversation,
+  Message,
+  Model,
+  ParametricLlmProvider,
+} from '@shared/types';
 import { HistoryConversation } from '../types/misc.ts';
 import {
   QueryClient,
@@ -359,10 +365,12 @@ export function useParametricChatMutation({
       model,
       messageId,
       conversationId,
+      parametricLlmProvider,
     }: {
       model: Model;
       messageId: string;
       conversationId: string;
+      parametricLlmProvider?: ParametricLlmProvider;
     }) => {
       const newMessageId = crypto.randomUUID();
       let initialized = false;
@@ -383,6 +391,9 @@ export function useParametricChatMutation({
             messageId,
             model,
             newMessageId,
+            ...(parametricLlmProvider
+              ? { parametricLlmProvider }
+              : {}),
           }),
         },
       );
@@ -644,6 +655,8 @@ export function useSendContentMutation({
           model: content.model ?? conversation.settings?.model ?? 'fast',
           messageId: userMessage.id,
           conversationId: conversation.id,
+          parametricLlmProvider:
+            conversation.settings?.parametricLlmProvider ?? 'openrouter',
         });
       }
     },
@@ -743,6 +756,8 @@ export function useEditMessageMutation({
           model: conversation.settings?.model ?? 'fast',
           messageId: userMessage.id,
           conversationId: conversation.id,
+          parametricLlmProvider:
+            conversation.settings?.parametricLlmProvider ?? 'openrouter',
         });
       }
     },
@@ -806,6 +821,8 @@ export function useRetryMessageMutation({
           model: model,
           messageId: id,
           conversationId: conversation.id,
+          parametricLlmProvider:
+            conversation.settings?.parametricLlmProvider ?? 'openrouter',
         });
       }
     },

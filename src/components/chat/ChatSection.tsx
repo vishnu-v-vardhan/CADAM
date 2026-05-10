@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Content, Message, Model } from '@shared/types';
+import { Content, Message, Model, ParametricLlmProvider } from '@shared/types';
 import TextAreaChat from '@/components/TextAreaChat';
 import { SuggestionPills } from '@/components/chat/SuggestionPills';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -164,6 +164,27 @@ export function ChatSection({
     [conversation, updateConversation],
   );
 
+  const handleParametricLlmProviderChange = useCallback(
+    (parametricLlmProvider: ParametricLlmProvider) => {
+      if (!updateConversation) return;
+      const prev =
+        typeof conversation.settings === 'object' && conversation.settings
+          ? conversation.settings
+          : {};
+      updateConversation({
+        ...conversation,
+        settings: {
+          ...prev,
+          parametricLlmProvider,
+          ...(parametricLlmProvider === 'openrouter'
+            ? { model: 'google/gemini-3.1-pro-preview' }
+            : {}),
+        },
+      });
+    },
+    [conversation, updateConversation],
+  );
+
   return (
     <div className="flex h-full w-full flex-col items-center overflow-hidden border-r border-neutral-700 bg-adam-bg-secondary-dark dark:border-gray-800">
       <div className="flex w-full items-center justify-between bg-transparent p-3 pl-12 dark:border-gray-800">
@@ -270,6 +291,11 @@ export function ChatSection({
             model={model}
             setModel={handleModelChange}
             conversation={conversation}
+            onParametricLlmProviderChange={
+              conversation.type === 'parametric'
+                ? handleParametricLlmProviderChange
+                : undefined
+            }
           />
         </div>
       )}

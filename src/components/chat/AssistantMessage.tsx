@@ -43,9 +43,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useLocalParametricModelsQuery } from '@/hooks/useLocalParametricModels';
 import { useMeshData } from '@/hooks/useMeshData';
 import { MeshImagePreview } from '@/components/viewer/MeshImagePreview';
 import { TreeNode } from '@shared/Tree';
+import type { ModelConfig } from '../../types/misc.ts';
 
 const linkParametricMode = (text: string) =>
   text.replace(
@@ -695,9 +697,39 @@ function RetryModelSelector({
   const [isOpen, setIsOpen] = useState(false);
   const { conversation } = useConversation();
 
+  const provider = conversation.settings?.parametricLlmProvider ?? 'openrouter';
+
+  const { data: localModels = [] } = useLocalParametricModelsQuery(
+    conversation.type === 'parametric' && provider === 'local',
+  );
+
   // Get the appropriate model list based on conversation type and content
-  const models =
-    conversation.type === 'parametric' ? PARAMETRIC_MODELS : CREATIVE_MODELS;
+  const models: ModelConfig[] = useMemo(() => {
+    if (conversation.type !== 'parametric') return CREATIVE_MODELS;
+    if (provider === 'local') {
+      if (localModels.length > 0) {
+        return localModels.map((m) => ({
+          id: m.id,
+          name: m.id,
+          description: 'Local model (LM Studio)',
+        }));
+      }
+      const bid = getBackupModel({
+        message,
+        parentMessage,
+        type: 'parametric',
+      });
+      return [
+        {
+          id: bid,
+          name: String(bid),
+          description: 'Start LM Studio or set LOCAL_LLM_URL on the function',
+          disabled: true,
+        },
+      ];
+    }
+    return PARAMETRIC_MODELS;
+  }, [conversation.type, provider, localModels, message, parentMessage]);
 
   const selectedModelConfig =
     models.find(
